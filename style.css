@@ -1,0 +1,664 @@
+/* ═══════════════════════════════════════════════════════
+   TicTac — custom styles on top of PaperCSS
+   PaperCSS gives us: hand-drawn borders, Neucha font,
+   paper-texture feel. We layer game-specific styles here.
+   ═══════════════════════════════════════════════════════ */
+
+/* ── Page layout ────────────────────────────────────── */
+body {
+  background: #f7f3e8;
+  background-image:
+    repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 27px,
+      rgba(180, 160, 120, 0.15) 27px,
+      rgba(180, 160, 120, 0.15) 28px
+    );
+  min-height: 100vh;
+  padding: 8px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+}
+
+/* Outer paper card */
+.paper.container {
+  margin-top: 16px;
+  margin-bottom: 24px;
+  padding: 20px;
+  background: #fffef9;
+  border: 2px solid #41403e;
+  box-shadow: 4px 6px 0 #c8b89a, -2px 2px 0 #d4c8b0;
+}
+
+/* ── Screens ────────────────────────────────────────── */
+.screen { display: none; }
+.screen.active { display: block; animation: slideIn 0.25s ease; }
+
+@keyframes slideIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Logo / Lobby ───────────────────────────────────── */
+.logo-area {
+  padding: 12px 0 20px;
+  border-bottom: 2px dashed #c8b89a;
+  margin-bottom: 24px;
+}
+
+.logo-symbols {
+  font-size: 2.4rem;
+  line-height: 1;
+  margin-bottom: 6px;
+}
+
+.sym-x { color: #c0392b; font-weight: 900; }
+.sym-o { color: #2471a3; font-weight: 900; }
+
+.logo-title {
+  font-size: 3.2rem !important;
+  margin: 4px 0 !important;
+  color: #41403e;
+  letter-spacing: -1px;
+}
+
+.logo-sub {
+  font-size: 0.75rem;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  margin: 0;
+}
+
+.lobby-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.divider-text {
+  text-align: center;
+  position: relative;
+  margin: 4px 0;
+}
+
+.divider-text::before,
+.divider-text::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  width: 38%;
+  height: 1px;
+  background: repeating-linear-gradient(90deg, #c8b89a 0, #c8b89a 4px, transparent 4px, transparent 8px);
+}
+
+.divider-text::before { left: 0; }
+.divider-text::after  { right: 0; }
+
+.divider-text span {
+  background: #fffef9;
+  padding: 0 10px;
+  font-size: 0.75rem;
+  color: #8f8d89;
+  position: relative;
+  z-index: 1;
+}
+
+.join-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.join-row input { flex: 1; }
+
+.footnote {
+  font-size: 0.7rem;
+  letter-spacing: 1px;
+  margin-top: 8px;
+}
+
+/* ── Buttons ─────────────────────────────────────────── */
+/* Override PaperCSS defaults for our button styles */
+.btn-primary,
+.btn-secondary,
+.btn-outline,
+.btn-danger,
+.btn-back {
+  font-family: "Neucha", sans-serif;
+  font-size: 1rem;
+  cursor: pointer;
+  border: 2px solid #41403e;
+  transition: transform 0.1s ease, box-shadow 0.1s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 20px;
+  width: 100%;
+  text-decoration: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.btn-primary {
+  background: #41403e;
+  color: #fffef9;
+  /* hand-drawn border-radius */
+  border-bottom-left-radius: 15px 255px;
+  border-bottom-right-radius: 225px 15px;
+  border-top-left-radius: 255px 15px;
+  border-top-right-radius: 15px 225px;
+  box-shadow: 3px 3px 0 #8f8d89;
+}
+
+.btn-primary:hover, .btn-primary:focus {
+  transform: translate(-1px, -1px);
+  box-shadow: 4px 4px 0 #8f8d89;
+  background: #272625;
+  color: #fffef9;
+  outline: none;
+}
+
+.btn-primary:active {
+  transform: translate(2px, 2px);
+  box-shadow: 1px 1px 0 #8f8d89;
+}
+
+.btn-secondary {
+  background: #f2f0e8;
+  color: #41403e;
+  border-bottom-left-radius: 255px 15px;
+  border-bottom-right-radius: 15px 255px;
+  border-top-left-radius: 15px 225px;
+  border-top-right-radius: 225px 15px;
+  box-shadow: 3px 3px 0 #c8b89a;
+  width: auto;
+}
+
+.btn-secondary:hover {
+  background: #e8e4d8;
+  transform: translate(-1px, -1px);
+  box-shadow: 4px 4px 0 #c8b89a;
+}
+
+.btn-outline {
+  background: transparent;
+  color: #41403e;
+  border-bottom-left-radius: 15px 255px;
+  border-bottom-right-radius: 225px 15px;
+  border-top-left-radius: 255px 15px;
+  border-top-right-radius: 15px 225px;
+}
+
+.btn-outline:hover { background: #f2f0e8; }
+
+.btn-danger {
+  background: #f0cbc9;
+  color: #a7342d;
+  border-color: #a7342d;
+  border-bottom-left-radius: 255px 15px;
+  border-bottom-right-radius: 15px 255px;
+  border-top-left-radius: 15px 225px;
+  border-top-right-radius: 225px 15px;
+  box-shadow: 2px 2px 0 #d4948f;
+}
+
+.btn-danger:hover { background: #e8b4b0; transform: translate(-1px, -1px); }
+
+.btn-sm {
+  font-size: 0.82rem;
+  padding: 7px 14px;
+  width: auto;
+}
+
+.btn-back {
+  background: none;
+  border: none;
+  color: #8f8d89;
+  width: auto;
+  padding: 4px 8px;
+  font-size: 0.85rem;
+  box-shadow: none;
+}
+
+.btn-back:hover { color: #41403e; }
+
+/* ── Inputs ─────────────────────────────────────────── */
+input[type="text"] {
+  border: 2px solid #41403e;
+  border-bottom-left-radius: 15px 255px;
+  border-bottom-right-radius: 225px 15px;
+  border-top-left-radius: 255px 15px;
+  border-top-right-radius: 15px 225px;
+  background: #fffef9;
+  color: #41403e;
+  font-family: "Neucha", sans-serif;
+  font-size: 1rem;
+  padding: 10px 14px;
+  width: 100%;
+  outline: none;
+  transition: box-shadow 0.15s ease;
+  box-sizing: border-box;
+}
+
+input[type="text"]:focus {
+  box-shadow: 0 0 0 3px rgba(65, 64, 62, 0.15);
+}
+
+input[type="text"]::placeholder { color: #b0ae9a; }
+
+/* Code input — large mono display */
+input[type="text"].code-input {
+  text-transform: uppercase;
+  letter-spacing: 6px;
+  font-size: 1.5rem;
+  text-align: center;
+  padding: 12px;
+}
+
+/* ── Connect screen ─────────────────────────────────── */
+.connect-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px dashed #c8b89a;
+}
+
+.connect-header h3 {
+  margin: 0;
+  font-size: 1.3rem;
+}
+
+.step-card {
+  display: flex;
+  gap: 14px;
+  padding: 16px;
+  margin-bottom: 14px;
+  border: 2px solid #41403e;
+  background: #fffef9;
+}
+
+/* Use PaperCSS hand-drawn border variants */
+.border-1 {
+  border-bottom-left-radius: 15px 255px;
+  border-bottom-right-radius: 225px 15px;
+  border-top-left-radius: 255px 15px;
+  border-top-right-radius: 15px 225px;
+}
+
+.border-2 {
+  border-bottom-left-radius: 185px 25px;
+  border-bottom-right-radius: 20px 205px;
+  border-top-left-radius: 125px 25px;
+  border-top-right-radius: 10px 205px;
+}
+
+.border-3 {
+  border-bottom-left-radius: 225px 15px;
+  border-bottom-right-radius: 15px 255px;
+  border-top-left-radius: 25px 115px;
+  border-top-right-radius: 155px 25px;
+}
+
+.step-num {
+  font-family: "Patrick Hand SC", sans-serif;
+  font-size: 2rem;
+  color: #c8b89a;
+  line-height: 1;
+  min-width: 28px;
+  padding-top: 2px;
+}
+
+.step-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.step-label {
+  font-size: 0.85rem;
+  color: #41403e;
+  margin: 0;
+  line-height: 1.4;
+}
+
+/* The big code display box */
+.code-display {
+  background: #f7f3e8;
+  border: 2px dashed #41403e;
+  border-radius: 4px;
+  padding: 14px 10px;
+  text-align: center;
+  letter-spacing: 8px;
+  font-size: 2rem;
+  font-family: "Patrick Hand SC", sans-serif;
+  color: #41403e;
+  min-height: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.code-loading {
+  font-size: 0.85rem;
+  letter-spacing: 1px;
+  color: #8f8d89;
+  animation: blink 1.2s infinite;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.3; }
+}
+
+.code-input-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.code-input-row input {
+  text-transform: uppercase;
+  letter-spacing: 4px;
+  font-size: 1.2rem;
+  text-align: center;
+  flex: 1;
+}
+
+/* ── Status pill ────────────────────────────────────── */
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-family: "Neucha", sans-serif;
+  font-size: 0.75rem;
+  border: 1.5px solid currentColor;
+  letter-spacing: 0.5px;
+  margin-top: 8px;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: pulse 2s infinite;
+  flex-shrink: 0;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: 0.5; transform: scale(0.85); }
+}
+
+.status-waiting   { color: #8f8d89; }
+.status-connecting { color: #c6932a; }
+.status-connected  { color: #5a8a3c; }
+.status-offline    { color: #a7342d; }
+.status-syncing    { color: #2471a3; }
+
+.status-connected .status-dot { animation: none; }
+
+/* ── Game screen ────────────────────────────────────── */
+.game-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+  padding-bottom: 10px;
+  border-bottom: 1px dashed #c8b89a;
+}
+
+.room-badge {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.room-label {
+  font-size: 0.65rem;
+  letter-spacing: 2px;
+  color: #8f8d89;
+  font-family: "Patrick Hand SC", sans-serif;
+}
+
+.room-code {
+  font-family: "Patrick Hand SC", sans-serif;
+  font-size: 1.2rem;
+  color: #41403e;
+  letter-spacing: 3px;
+}
+
+/* ── Player bar ─────────────────────────────────────── */
+.player-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.player-card {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 14px;
+  border: 2px solid #41403e;
+  background: #f7f3e8;
+  opacity: 0.45;
+  transition: opacity 0.2s ease, background 0.2s ease, transform 0.15s ease;
+  flex: 1;
+}
+
+.player-card.active {
+  opacity: 1;
+  background: #fffef9;
+  transform: scale(1.03);
+}
+
+.p-symbol { font-size: 1.4rem; line-height: 1; }
+.p-name   { font-size: 0.75rem; color: #41403e; white-space: nowrap; }
+
+.turn-indicator {
+  text-align: center;
+  font-family: "Patrick Hand SC", sans-serif;
+  font-size: 0.9rem;
+  color: #41403e;
+  flex-shrink: 0;
+  padding: 0 4px;
+}
+
+/* ── Board ──────────────────────────────────────────── */
+.board {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(3, 1fr);
+  gap: 8px;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  margin-bottom: 16px;
+}
+
+.cell {
+  background: #f7f3e8;
+  border: 2px solid #41403e;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: "Patrick Hand SC", sans-serif;
+  font-size: 2.6rem;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.1s ease;
+  position: relative;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+
+  /* hand-drawn border variant cycling through cells */
+}
+
+/* Rotate hand-drawn border styles across cells */
+.cell:nth-child(3n+1) {
+  border-bottom-left-radius: 15px 255px;
+  border-bottom-right-radius: 225px 15px;
+  border-top-left-radius: 255px 15px;
+  border-top-right-radius: 15px 225px;
+}
+.cell:nth-child(3n+2) {
+  border-bottom-left-radius: 185px 25px;
+  border-bottom-right-radius: 20px 205px;
+  border-top-left-radius: 125px 25px;
+  border-top-right-radius: 10px 205px;
+}
+.cell:nth-child(3n+3) {
+  border-bottom-left-radius: 25px 115px;
+  border-bottom-right-radius: 155px 25px;
+  border-top-left-radius: 225px 15px;
+  border-top-right-radius: 15px 255px;
+}
+
+.cell:not(.taken):hover {
+  background: #ececde;
+  transform: scale(1.04);
+}
+
+.cell:not(.taken):active { transform: scale(0.97); }
+
+.cell.taken { cursor: default; }
+
+.cell .mark {
+  animation: popIn 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.4);
+  line-height: 1;
+  display: block;
+}
+
+@keyframes popIn {
+  from { transform: scale(0) rotate(-20deg); opacity: 0; }
+  to   { transform: scale(1) rotate(0deg);  opacity: 1; }
+}
+
+.cell.x-cell { background: #fde8e8; }
+.cell.o-cell { background: #e8f0fd; }
+.cell.x-cell .mark { color: #c0392b; }
+.cell.o-cell .mark { color: #2471a3; }
+
+/* Win highlight */
+.cell.win-cell {
+  animation: winBounce 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.4) forwards;
+}
+
+@keyframes winBounce {
+  0%   { transform: scale(1); }
+  40%  { transform: scale(1.12) rotate(3deg); }
+  70%  { transform: scale(0.95) rotate(-1deg); }
+  100% { transform: scale(1.04) rotate(0deg); }
+}
+
+.cell.x-cell.win-cell {
+  background: #f5b7b1;
+  border-color: #c0392b;
+  border-width: 3px;
+}
+
+.cell.o-cell.win-cell {
+  background: #aed6f1;
+  border-color: #2471a3;
+  border-width: 3px;
+}
+
+/* ── Game message ───────────────────────────────────── */
+.game-message {
+  margin-bottom: 12px;
+  animation: slideUp 0.3s ease;
+}
+
+@keyframes slideUp {
+  from { transform: translateY(8px); opacity: 0; }
+  to   { transform: translateY(0); opacity: 1; }
+}
+
+.message-inner {
+  border: 2px solid #41403e;
+  background: #fffef9;
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.message-text {
+  font-family: "Patrick Hand SC", sans-serif;
+  font-size: 1.1rem;
+  color: #41403e;
+}
+
+/* ── Game footer ────────────────────────────────────── */
+.game-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 10px;
+  border-top: 1px dashed #c8b89a;
+}
+
+.role-tag {
+  font-family: "Neucha", sans-serif;
+  font-size: 0.8rem;
+  color: #8f8d89;
+  letter-spacing: 1px;
+}
+
+/* ── Toast ──────────────────────────────────────────── */
+#toast-container {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 999;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+  pointer-events: none;
+}
+
+.toast {
+  background: #41403e;
+  color: #fffef9;
+  padding: 8px 18px;
+  font-family: "Neucha", sans-serif;
+  font-size: 0.85rem;
+  border-radius: 4px;
+  box-shadow: 2px 3px 0 rgba(0,0,0,0.2);
+  animation: toastIn 0.2s ease, toastOut 0.25s ease 2.75s forwards;
+  white-space: nowrap;
+  pointer-events: auto;
+}
+
+@keyframes toastIn {
+  from { transform: translateY(10px); opacity: 0; }
+  to   { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes toastOut {
+  to { opacity: 0; transform: translateY(-6px); }
+}
+
+/* ── Utility ────────────────────────────────────────── */
+.hidden { display: none !important; }
+
+/* ── Mobile ─────────────────────────────────────────── */
+@media (max-width: 400px) {
+  .cell { font-size: 2rem; }
+  .paper.container { padding: 14px; margin-top: 8px; }
+  .code-display { font-size: 1.6rem; letter-spacing: 5px; }
+}

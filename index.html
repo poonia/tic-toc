@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#f2f0e8" />
+  <meta name="description" content="Local-first multiplayer Tic-Tac-Toe with offline support and P2P sync" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="TicTac" />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <link rel="icon" type="image/png" href="icons/icon-192.png" />
+  <!-- PaperCSS -->
+  <link rel="stylesheet" href="https://unpkg.com/papercss@1.9.2/dist/paper.min.css" />
+  <!-- Custom overrides -->
+  <link rel="stylesheet" href="style.css" />
+  <title>TicTac — P2P Multiplayer</title>
+</head>
+<body>
+
+  <div class="paper container container-xs">
+
+    <!-- ══════════════════════════════════════════ -->
+    <!--  LOBBY SCREEN                              -->
+    <!-- ══════════════════════════════════════════ -->
+    <div id="screen-lobby" class="screen active">
+
+      <div class="text-center logo-area">
+        <div class="logo-symbols">
+          <span class="sym-x">✕</span>
+          <span class="sym-o">○</span>
+        </div>
+        <h1 class="logo-title">TicTac</h1>
+        <p class="logo-sub text-muted">peer-to-peer · offline-first · no server</p>
+      </div>
+
+      <div class="lobby-actions">
+        <button id="btn-create" class="btn-primary">
+          ⊞ &nbsp;Create a Room
+        </button>
+
+        <div class="divider-text"><span>or join existing</span></div>
+
+        <div class="join-row">
+          <input
+            id="input-room-id"
+            type="text"
+            placeholder="Room code (e.g. XKCD42)"
+            maxlength="6"
+            autocomplete="off"
+            spellcheck="false"
+            autocapitalize="characters"
+          />
+          <button id="btn-join" class="btn-secondary">Join</button>
+        </div>
+      </div>
+
+      <p class="text-center text-muted footnote">
+        No accounts. No tracking. Just play.
+      </p>
+    </div>
+
+    <!-- ══════════════════════════════════════════ -->
+    <!--  CONNECT SCREEN                            -->
+    <!-- ══════════════════════════════════════════ -->
+    <div id="screen-connect" class="screen">
+
+      <div class="connect-header">
+        <button class="btn-back" id="btn-back-lobby">← back</button>
+        <h3 id="connect-title">Connecting…</h3>
+      </div>
+
+      <!-- HOST FLOW -->
+      <div id="flow-host" class="hidden">
+        <div class="step-card border-1">
+          <div class="step-num">1</div>
+          <div class="step-body">
+            <p class="step-label">Share your <strong>Room Code</strong> with your opponent</p>
+            <div class="code-display" id="host-offer-code">
+              <span class="code-loading">Generating…</span>
+            </div>
+            <button class="btn-outline btn-sm" id="btn-copy-offer">📋 Copy Code</button>
+          </div>
+        </div>
+
+        <div class="step-card border-2">
+          <div class="step-num">2</div>
+          <div class="step-body">
+            <p class="step-label">Enter the <strong>Join Code</strong> your opponent gives you</p>
+            <div class="code-input-row">
+              <input
+                id="input-answer-code"
+                type="text"
+                placeholder="6-letter code"
+                maxlength="6"
+                autocomplete="off"
+                spellcheck="false"
+                autocapitalize="characters"
+              />
+              <button class="btn-primary btn-sm" id="btn-submit-answer">Connect ▶</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- GUEST FLOW -->
+      <div id="flow-guest" class="hidden">
+        <div class="step-card border-1">
+          <div class="step-num">1</div>
+          <div class="step-body">
+            <p class="step-label">Paste the host's <strong>Room Code</strong></p>
+            <div class="code-input-row">
+              <input
+                id="input-offer-code"
+                type="text"
+                placeholder="Host's 6-letter code"
+                maxlength="6"
+                autocomplete="off"
+                spellcheck="false"
+                autocapitalize="characters"
+              />
+              <button class="btn-primary btn-sm" id="btn-generate-answer">Submit ▶</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="guest-step-2" class="step-card border-2 hidden">
+          <div class="step-num">2</div>
+          <div class="step-body">
+            <p class="step-label">Send this <strong>Join Code</strong> back to the host</p>
+            <div class="code-display" id="guest-answer-code">
+              <span class="code-loading">Generating…</span>
+            </div>
+            <button class="btn-outline btn-sm" id="btn-copy-answer">📋 Copy Code</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Status badge -->
+      <div id="connect-status" class="status-pill status-waiting">
+        <span class="status-dot"></span>
+        <span id="connect-status-text">Waiting…</span>
+      </div>
+
+    </div>
+
+    <!-- ══════════════════════════════════════════ -->
+    <!--  GAME SCREEN                               -->
+    <!-- ══════════════════════════════════════════ -->
+    <div id="screen-game" class="screen">
+
+      <div class="game-header">
+        <div class="room-badge">
+          <span class="room-label">ROOM</span>
+          <span id="display-room-id" class="room-code">——</span>
+        </div>
+        <div id="connection-status" class="status-pill status-waiting">
+          <span class="status-dot"></span>
+          <span id="status-text">Connecting</span>
+        </div>
+      </div>
+
+      <!-- Player turn indicator -->
+      <div class="player-bar">
+        <div id="player-x" class="player-card border-1">
+          <span class="p-symbol sym-x">✕</span>
+          <span class="p-name">Player X</span>
+        </div>
+        <div class="turn-indicator" id="turn-indicator">
+          <span id="turn-text">X's turn</span>
+        </div>
+        <div id="player-o" class="player-card border-2">
+          <span class="p-symbol sym-o">○</span>
+          <span class="p-name">Player O</span>
+        </div>
+      </div>
+
+      <!-- Board -->
+      <div id="board" class="board" role="grid" aria-label="Tic-tac-toe board">
+        <!-- 9 cells injected by JS -->
+      </div>
+
+      <!-- Win / Draw message -->
+      <div id="game-message" class="game-message hidden">
+        <div class="border-3 message-inner">
+          <span id="message-text" class="message-text"></span>
+          <button id="btn-restart" class="btn-primary btn-sm">Play Again ↺</button>
+        </div>
+      </div>
+
+      <!-- Footer -->
+      <div class="game-footer">
+        <span id="your-role" class="role-tag"></span>
+        <button id="btn-disconnect" class="btn-danger btn-sm">Leave Room</button>
+      </div>
+
+    </div>
+
+  </div><!-- /paper container -->
+
+  <!-- Toast -->
+  <div id="toast-container" aria-live="polite"></div>
+
+  <script src="db.js"></script>
+  <script src="sync.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
