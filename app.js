@@ -160,12 +160,18 @@
     renderGameStatus();
   }
 
-  async function restartGame() {
+  /**
+   * Reset game state locally.
+   * @param {boolean} broadcast - if true, notify the peer (only the initiator does this)
+   */
+  async function restartGame(broadcast = false) {
     state.moves = []; state.board = Array(9).fill(null);
     state.currentPlayer = 'X'; state.status = 'playing';
     state.winner = null; state.winLine = null;
     try { await TicTacDB.clearRoom(state.roomId); await persistState(); } catch (_) {}
-    TicTacSync.send('RESTART', {});
+    // Only the player who clicked "Play Again" sends the RESTART message.
+    // The peer resets locally only — no re-broadcast — breaking the loop.
+    if (broadcast) TicTacSync.send('RESTART', {});
     renderBoard(); renderPlayerBar(); renderGameStatus();
   }
 
@@ -185,7 +191,8 @@
         if (payload.moves) await applyMoves(payload.moves);
         break;
       case 'RESTART':
-        await restartGame();
+        // Peer initiated restart — reset locally only, do NOT re-send RESTART
+        await restartGame(false);
         toast('Game restarted by opponent ↺');
         break;
     }
@@ -314,14 +321,16 @@
 
     try {
       const code = await TicTacSync.createOfferCode();
-      $('host-offer-code').textContent = code;
-      setConnectStatus('Share the Room Code above', 'connecting');
-      toast(`Room Code ready: ${code}`);
+      $('host-offer-code').value = code;
+      $('host-offer-code').style.height = 'auto';
+      $('host-offer-code').style.height = $('host-offer-code').scrollHeight + 'px';
+      setConnectStatus('Share the Offer Code above with your opponent', 'connecting');
+      toast('Offer Code ready — copy and send it!');
     } catch (e) {
       console.error('[connect] createOfferCode failed:', e);
-      $('host-offer-code').innerHTML = '<span class="code-loading">Error — try again</span>';
-      setConnectStatus('Failed to generate code', 'offline');
-      toast('Error generating code — check network');
+      $('host-offer-code').value = 'Error generating code — please go back and try again.';
+      setConnectStatus('Failed to generate offer', 'offline');
+      toast('Error: ' + (e.message || 'unknown'), 5000);
     }
   });
 
@@ -351,9 +360,10 @@
   $('btn-back-lobby').addEventListener('click', () => {
     TicTacSync.disconnect();
     state.roomId = null;
-    $('host-offer-code').innerHTML = '<span class="code-loading">Generating…</span>';
-    $('input-answer-code').value = '';
-    $('input-offer-code').value  = '';
+    $('host-offer-code').value    = '';
+    $('input-answer-code').value  = '';
+    $('input-offer-code').value   = '';
+    $('guest-answer-code').value  = '';
     $('guest-step-2').classList.add('hidden');
     showScreen('lobby');
   });
@@ -366,48 +376,39 @@
   }
 
   $('btn-copy-offer').addEventListener('click', () => {
-    const code = $('host-offer-code').textContent.trim();
-    if (code && code !== 'Generating…') copyText(code);
+    const code = $('host-offer-code').value.trim();
+    if (code) copyText(code);
+    else toast('Code not ready yet');
   });
 
   $('btn-copy-answer').addEventListener('click', () => {
-    const code = $('guest-answer-code').textContent.trim();
-    if (code && code !== 'Generating…') copyText(code);
+    const code = $('guest-answer-code').value.trim();
+    if (code) copyText(code);
+    else toast('Code not ready yet');
   });
 
   /* ── Auto-uppercase all code inputs ──────────────────────────── */
-  ['input-answer-code', 'input-offer-code', 'input-room-id'].forEach(id => {
-    const el = $(id);
-    if (!el) return;
-    el.addEventListener('input', () => {
-      const pos = el.selectionStart;
-      el.value = el.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
-      try { el.setSelectionRange(pos, pos); } catch (_) {}
-    });
-    el.addEventListener('paste', (e) => {
-      e.preventDefault();
-      const pasted = (e.clipboardData.getData('text') || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6);
-      el.value = pasted;
-    });
-  });
+  // Textareas for codes don't need auto-uppercase since they're base64url
 
   /* ── Host: submit answer code ────────────────────────────────── */
   $('btn-submit-answer').addEventListener('click', async () => {
-    const code = $('input-answer-code').value.trim().toUpperCase();
-    if (!code || code.length < 4) { toast('Enter the 6-letter Join Code'); return; }
+    const code = ($('input-answer-code').value || '').trim();
+    if (!code || code.replace(/[\s\-]/g, '').length < 20) {
+      toast('Please paste the full Answer Code from your opponent');
+      return;
+    }
 
-    setConnectStatus('Fetching answer & connecting…', 'connecting');
+    setConnectStatus('Decoding answer & connecting…', 'connecting');
     $('btn-submit-answer').disabled = true;
 
     try {
       await TicTacSync.acceptAnswerCode(code);
-      setConnectStatus('Waiting for P2P connection…', 'connecting');
+      setConnectStatus('Waiting for P2P handshake…', 'connecting');
       // statuschange 'connected' will fire → enterGame()
     } catch (e) {
       console.error('[connect] acceptAnswerCode failed:', e);
-      const msg = e.message || 'Unknown error';
-      toast('⚠ ' + (msg.length > 80 ? msg.slice(0, 80) + '…' : msg), 5000);
-      setConnectStatus('Connection failed — try again', 'offline');
+      toast('⚠ ' + (e.message || 'Connection failed'), 5000);
+      setConnectStatus('Failed — check code & try again', 'offline');
     } finally {
       $('btn-submit-answer').disabled = false;
     }
@@ -415,22 +416,24 @@
 
   /* ── Guest: generate answer from offer code ──────────────────── */
   $('btn-generate-answer').addEventListener('click', async () => {
-    const offerCode = $('input-offer-code').value.trim().toUpperCase();
-    if (!offerCode || offerCode.length < 4) { toast('Enter the host\'s Room Code'); return; }
+    const offerCode = ($('input-offer-code').value || '').trim();
+    if (!offerCode || offerCode.replace(/[\s\-]/g, '').length < 20) {
+      toast("Please paste the full Offer Code from the host");
+      return;
+    }
 
     setConnectStatus('Fetching offer & creating answer…', 'connecting');
 
     $('btn-generate-answer').disabled = true;
     try {
       const answerCode = await TicTacSync.createAnswerCode(offerCode);
-      $('guest-answer-code').textContent = answerCode;
+      $('guest-answer-code').value = answerCode;
       $('guest-step-2').classList.remove('hidden');
-      setConnectStatus('Send your Join Code to the host', 'connecting');
-      toast(`Join Code ready: ${answerCode}`);
+      setConnectStatus('Send your Answer Code back to the host', 'connecting');
+      toast('Answer Code ready — copy and send it!');
     } catch (e) {
       console.error('[connect] createAnswerCode failed:', e);
-      const msg = e.message || 'Unknown error';
-      toast('⚠ ' + (msg.length > 80 ? msg.slice(0, 80) + '…' : msg), 5000);
+      toast('⚠ ' + (e.message || 'Unknown error'), 5000);
       setConnectStatus('Failed — check the offer code & try again', 'offline');
     } finally {
       $('btn-generate-answer').disabled = false;
@@ -452,7 +455,7 @@
   /*  GAME EVENTS                                                   */
   /* ════════════════════════════════════════════════════════════ */
 
-  $('btn-restart').addEventListener('click', restartGame);
+  $('btn-restart').addEventListener('click', () => restartGame(true));
 
   $('btn-disconnect').addEventListener('click', async () => {
     TicTacSync.disconnect();

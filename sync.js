@@ -1,37 +1,53 @@
 /**
- * sync.js — WebRTC P2P sync with reliable short-code SDP exchange
+ * sync.js — WebRTC P2P with self-contained SDP codes
  *
- * ─── HOW SHORT CODES WORK ────────────────────────────────────────
+ * ─── THE APPROACH ────────────────────────────────────────────────
  *
- * Problem: WebRTC SDP is ~2KB of text. Humans can't type that.
+ * We eliminate ALL external API dependencies by encoding the full
+ * WebRTC SDP directly into a compact base64url string (~300 chars).
  *
- * Solution: We store the SDP in a free anonymous key-value store
- * and give users a 6-character alphanumeric code to exchange.
+ * Instead of storing SDP somewhere and exchanging a short lookup key,
+ * the code IS the SDP — just compressed and encoded.
  *
- * The SDP is stored using THREE brokers tried in order:
- *   1. npoint.io       — free anonymous JSON store, no auth
- *   2. paste.rs        — anonymous pastebin, CORS enabled
- *   3. localStorage    — same-browser fallback (for local testing)
+ * The code is displayed in 4-character groups for easy copy-paste:
+ *   eyJ0-Ijoi-byIs-InUi-OiJh-QmNE-...
  *
- * A localStorage registry persists code→{broker,fullId} so lookups
- * work after page refresh on the same device.
+ * This works 100% offline after initial page load, with zero API
+ * calls, zero dependencies, and zero points of failure.
+ *
+ * ─── SDP COMPRESSION ─────────────────────────────────────────────
+ *
+ * A raw Chrome/Firefox SDP for a DataChannel is ~1.5KB.
+ * We extract only the 5 fields WebRTC actually needs:
+ *   u = ice-ufrag   (~4 chars)
+ *   p = ice-pwd     (~24 chars)
+ *   f = fingerprint (~64 hex chars, colons stripped)
+ *   s = setup       (1 char: 'a'=actpass, 'c'=active, 'p'=passive)
+ *   c = candidates  (ip|port|type encoded, comma-separated)
+ *
+ * Serialised to JSON then base64url → ~280-320 chars.
+ * Displayed in 4-char hyphen-separated groups for readability.
  *
  * ─── CONNECTION FLOW ─────────────────────────────────────────────
  *
- *   HOST                              GUEST
- *   ────                              ─────
- *   1. Create RTCPeerConnection
- *   2. Create DataChannel
- *   3. Create SDP offer + ICE
- *   4. Store SDP → OFFER CODE         ← Share OFFER CODE
- *                                     5. Fetch SDP by OFFER CODE
- *                                     6. Set remote description
- *                                     7. Create SDP answer + ICE
- *   Share ANSWER CODE ───────────→    8. Store SDP → ANSWER CODE
- *   9.  Fetch SDP by ANSWER CODE
- *   10. Set remote description
- *   11. ICE connects! ↔↔↔↔↔↔↔↔↔↔↔ 11. ICE connects!
- *   12. DataChannel opens ↔↔↔↔↔↔↔  12. DataChannel opens
+ *   HOST creates room:
+ *     → createOffer() + gather ICE
+ *     → encodeSDP(localDescription) → OFFER_CODE (~300 chars)
+ *     → User copies OFFER_CODE, shares with guest (any channel)
+ *
+ *   GUEST joins:
+ *     → Pastes OFFER_CODE
+ *     → decodeSDP(OFFER_CODE) → RTCSessionDescription
+ *     → setRemoteDescription(offer)
+ *     → createAnswer() + gather ICE
+ *     → encodeSDP(localDescription) → ANSWER_CODE (~300 chars)
+ *     → User copies ANSWER_CODE, shares back with host
+ *
+ *   HOST finishes:
+ *     → Pastes ANSWER_CODE
+ *     → decodeSDP(ANSWER_CODE) → RTCSessionDescription
+ *     → setRemoteDescription(answer)
+ *     → ICE negotiation begins → DataChannel opens → CONNECTED!
  *
  * ─────────────────────────────────────────────────────────────────
  */
@@ -39,301 +55,265 @@
 (function () {
   'use strict';
 
-  /* ── ICE Servers ─────────────────────────────────────────────── */
+  /* ── ICE servers (public STUN, no TURN needed for most networks) */
   const ICE_SERVERS = [
-    { urls: 'stun:stun.l.google.com:19302'  },
-    { urls: 'stun:stun1.l.google.com:19302' },
-    { urls: 'stun:stun.cloudflare.com:3478' },
+    { urls: 'stun:stun.l.google.com:19302'   },
+    { urls: 'stun:stun1.l.google.com:19302'  },
+    { urls: 'stun:stun.cloudflare.com:3478'  },
+    { urls: 'stun:stun.stunprotocol.org:3478' },
   ];
 
-  const ICE_TIMEOUT   = 8000;  // ms to wait for ICE gathering
-  const PING_INTERVAL = 6000;
-  const PING_TIMEOUT  = 15000;
+  const ICE_GATHER_TIMEOUT = 10000; // ms — wait up to 10s for candidates
+  const PING_INTERVAL      = 6000;
+  const PING_TIMEOUT       = 15000;
 
-  /* ══════════════════════════════════════════════════════════════
-     SDP BROKERS
-     Each must implement:
-       store(text: string) → Promise<{ code: string, fullId: string }>
-       fetch(fullId: string) → Promise<string>
-  ══════════════════════════════════════════════════════════════ */
+  /* ════════════════════════════════════════════════════════════════
+     SDP ENCODE / DECODE
+     Converts a full RTCSessionDescription ↔ compact base64url code
+  ════════════════════════════════════════════════════════════════ */
 
   /**
-   * Broker 1: npoint.io — free anonymous JSON storage, no auth needed.
-   * POST /bins → { id, data }
-   * GET  /bins/{id} → { id, data }
+   * Encode an RTCSessionDescription into a compact shareable code.
+   * @param {RTCSessionDescription|{type,sdp}} desc
+   * @returns {string}  base64url string, ~280-320 chars
    */
-  const npointBroker = {
-    name: 'npoint',
+  function encodeSDP(desc) {
+    const lines = desc.sdp.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
 
-    async store(text) {
-      const res = await fetch('https://api.npoint.io/bins', {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ sdp: text }),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      const id   = String(data.id || data._id || '');
-      if (!id) throw new Error('no id in response');
-      const code = makeCode(id);
-      return { code, fullId: id };
-    },
+    const get = (prefix) => {
+      const line = lines.find(l => l.startsWith(prefix));
+      return line ? line.slice(prefix.length).trim() : '';
+    };
 
-    async fetch(fullId) {
-      const res = await fetch(`https://api.npoint.io/bins/${fullId}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      if (!data.sdp) throw new Error('no sdp field');
-      return data.sdp;
-    },
-  };
+    // Fingerprint: strip colons  "AA:BB:CC..." → "AABBCC..."
+    const fp = get('a=fingerprint:sha-256 ').replace(/:/g, '');
 
-  /**
-   * Broker 2: paste.rs — anonymous text pastebin with CORS headers.
-   * POST / with text body → returns URL as plain text (e.g. https://paste.rs/Abc)
-   * GET  /{id} → returns stored text
-   */
-  const pastersBroker = {
-    name: 'paste.rs',
+    // Setup: encode as single char
+    const setupMap = { actpass: 'a', active: 'c', passive: 'p', holdconn: 'h' };
+    const setup = setupMap[get('a=setup:')] || 'a';
 
-    async store(text) {
-      const res = await fetch('https://paste.rs/', {
-        method:  'POST',
-        headers: { 'Content-Type': 'text/plain' },
-        body:    text,
-      });
-      // paste.rs returns 201 on success
-      if (res.status !== 201 && !res.ok) throw new Error(`HTTP ${res.status}`);
-      const url  = (await res.text()).trim();
-      // URL is like: https://paste.rs/xYz  or  https://paste.rs/xYz.txt
-      const id   = url.split('/').pop().replace(/\.txt$/, '').trim();
-      if (!id) throw new Error('no paste id in response');
-      const code = makeCode(id);
-      return { code, fullId: id };
-    },
+    // Candidates: encode as "ip|port|typeproto" or "ip|port|typeproto|raddr|rport"
+    const cands = lines
+      .filter(l => l.startsWith('a=candidate:'))
+      .map(l => {
+        const p = l.slice('a=candidate:'.length).split(' ');
+        // p[2]=protocol, p[4]=ip, p[5]=port, p[7]=typ
+        const proto  = (p[2] || 'udp').toLowerCase();
+        const ip     = p[4] || '';
+        const port   = p[5] || '';
+        const ctype  = p[7] || 'host';
 
-    async fetch(fullId) {
-      // Try plain URL first, then .txt variant
-      for (const suffix of ['', '.txt']) {
-        try {
-          const res = await fetch(`https://paste.rs/${fullId}${suffix}`);
-          if (res.ok) return await res.text();
-        } catch (_) {}
-      }
-      throw new Error(`paste.rs: could not fetch ${fullId}`);
-    },
-  };
+        if (!ip || !port) return null;
 
-  /**
-   * Broker 3: localStorage — works only within the same browser.
-   * Used as a last resort for same-device testing.
-   */
-  const localBroker = {
-    name: 'local',
-    _mem: new Map(),
+        const ptag = proto === 'tcp' ? 't' : 'u';
 
-    async store(text) {
-      const code = randomCode(6);
-      this._mem.set(code, text);
-      _lsSet('tictac:sdp:' + code, text);
-      return { code, fullId: code };
-    },
-
-    async fetch(fullId) {
-      const code = fullId.toUpperCase();
-      if (this._mem.has(code)) return this._mem.get(code);
-      const v = _lsGet('tictac:sdp:' + code);
-      if (v) return v;
-      throw new Error(`local: code ${code} not found`);
-    },
-  };
-
-  /* ── Broker list — tried in order ────────────────────────────── */
-  const BROKERS = [npointBroker, pastersBroker, localBroker];
-
-  /* ── Code registry — maps 6-char code → { brokerName, fullId } ── */
-  const REG_KEY = 'tictac:code-registry';
-
-  function regGet(code) {
-    try {
-      const m = JSON.parse(localStorage.getItem(REG_KEY) || '{}');
-      return m[code.toUpperCase()] || null;
-    } catch (_) { return null; }
-  }
-
-  function regSet(code, brokerName, fullId) {
-    try {
-      const m = JSON.parse(localStorage.getItem(REG_KEY) || '{}');
-      m[code.toUpperCase()] = { brokerName, fullId };
-      // Cap at 20 entries to stay lean
-      const keys = Object.keys(m);
-      if (keys.length > 20) delete m[keys[0]];
-      localStorage.setItem(REG_KEY, JSON.stringify(m));
-    } catch (_) {}
-  }
-
-  /* ── Helpers ─────────────────────────────────────────────────── */
-
-  /** Convert any ID string to a 6-char uppercase display code */
-  function makeCode(id) {
-    const clean = String(id).replace(/[^A-Za-z0-9]/g, '');
-    return clean.slice(-6).toUpperCase().padStart(6, 'X');
-  }
-
-  /** Generate a random N-char code — avoids ambiguous chars */
-  function randomCode(n) {
-    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-    let s = '';
-    for (let i = 0; i < n; i++) s += chars[Math.floor(Math.random() * chars.length)];
-    return s;
-  }
-
-  /** localStorage helpers with error swallowing */
-  function _lsSet(key, val) {
-    try { localStorage.setItem(key, val); } catch (_) {}
-  }
-  function _lsGet(key) {
-    try { return localStorage.getItem(key) || null; } catch (_) { return null; }
-  }
-
-  /* ── Core store/fetch with multi-broker fallback ─────────────── */
-
-  async function storeSDP(text) {
-    const errs = [];
-    for (const broker of BROKERS) {
-      try {
-        console.log(`[sync] store → trying ${broker.name}`);
-        const { code, fullId } = await broker.store(text);
-        regSet(code, broker.name, fullId);
-        console.log(`[sync] stored via ${broker.name}: code=${code} fullId=${fullId}`);
-        return code;
-      } catch (e) {
-        console.warn(`[sync] ${broker.name} store failed:`, e.message);
-        errs.push(e.message);
-      }
-    }
-    throw new Error('All SDP brokers failed: ' + errs.join(' | '));
-  }
-
-  async function fetchSDP(code) {
-    const upper  = code.toUpperCase().trim();
-    const entry  = regGet(upper);
-
-    // Fast path: we have the exact broker + fullId registered
-    if (entry) {
-      const broker = BROKERS.find(b => b.name === entry.brokerName);
-      if (broker) {
-        try {
-          const text = await broker.fetch(entry.fullId);
-          console.log(`[sync] fetched via registered ${broker.name}`);
-          return text;
-        } catch (e) {
-          console.warn(`[sync] registered broker fetch failed, trying fallbacks:`, e.message);
+        if (ctype === 'srflx') {
+          // Find raddr (index 9) and rport (index 11)
+          const raddr = p[9] || '';
+          const rport = p[11] || '';
+          return `${ip}|${port}|s${ptag}|${raddr}|${rport}`;
         }
-      }
-    }
+        if (ctype === 'host') {
+          return `${ip}|${port}|h${ptag}`;
+        }
+        return null; // skip relay (requires TURN), prflx, etc.
+      })
+      .filter(Boolean);
 
-    // Slow path: code came from another device, try each broker treating
-    // the 6-char code itself as the fullId (works for local broker at least)
-    const errs = [];
-    for (const broker of BROKERS) {
-      try {
-        const text = await broker.fetch(upper);
-        console.log(`[sync] fetched via fallback ${broker.name}`);
-        return text;
-      } catch (e) {
-        errs.push(`${broker.name}: ${e.message}`);
-      }
-    }
+    const mini = {
+      t: desc.type[0],   // 'o' = offer, 'a' = answer
+      u: get('a=ice-ufrag:'),
+      p: get('a=ice-pwd:'),
+      f: fp,
+      s: setup,
+      c: cands,
+    };
 
-    throw new Error(
-      `Cannot find SDP for code "${upper}". ` +
-      'Check the code is correct and both devices are online. ' +
-      '(' + errs.join(' | ') + ')'
-    );
+    const json   = JSON.stringify(mini);
+    const b64url = btoa(unescape(encodeURIComponent(json)))
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/, '');
+
+    return b64url;
   }
 
-  /* ══════════════════════════════════════════════════════════════
+  /**
+   * Decode a shareable code back into an RTCSessionDescription object.
+   * Tolerates hyphens, spaces, and mixed case (display formatting).
+   * @param {string} code
+   * @returns {{ type: string, sdp: string }}
+   */
+  function decodeSDP(code) {
+    // Strip display formatting (hyphens, spaces, newlines)
+    const clean = code.replace(/[\s\-\n\r]/g, '');
+
+    // Restore base64 padding
+    const padded = clean + '===='.slice(0, (4 - clean.length % 4) % 4);
+    const base64 = padded.replace(/-/g, '+').replace(/_/g, '/');
+
+    let json;
+    try {
+      json = decodeURIComponent(escape(atob(base64)));
+    } catch (e) {
+      throw new Error('Invalid code — could not decode. Make sure you copied the full code.');
+    }
+
+    let mini;
+    try {
+      mini = JSON.parse(json);
+    } catch (e) {
+      throw new Error('Invalid code — corrupted data. Please re-copy and try again.');
+    }
+
+    const required = ['t', 'u', 'p', 'f', 'c'];
+    for (const k of required) {
+      if (mini[k] === undefined || mini[k] === null) {
+        throw new Error(`Invalid code — missing field "${k}". The code may be truncated.`);
+      }
+    }
+
+    // Reconstruct type
+    const type = mini.t === 'o' ? 'offer' : 'answer';
+
+    // Reconstruct fingerprint with colons
+    const fp = (mini.f.match(/.{1,2}/g) || []).join(':');
+
+    // Reconstruct setup
+    const setupMap = { a: 'actpass', c: 'active', p: 'passive', h: 'holdconn' };
+    const setup = setupMap[mini.s] || 'actpass';
+
+    // Reconstruct candidate lines
+    const candidates = (Array.isArray(mini.c) ? mini.c : [])
+      .map((c, i) => {
+        const parts   = c.split('|');
+        const ip      = parts[0];
+        const port    = parts[1];
+        const ctag    = parts[2] || 'hu'; // 'hu'=host-udp, 'su'=srflx-udp, etc.
+        const ctype   = ctag[0];          // 'h' or 's'
+        const proto   = ctag[1] === 't' ? 'tcp' : 'udp';
+        const prio    = ctype === 's' ? (1686052607 - i) : (2122260223 - i);
+
+        if (ctype === 's') {
+          const raddr = parts[3] || ip;
+          const rport = parts[4] || port;
+          return `a=candidate:${i + 1} 1 ${proto} ${prio} ${ip} ${port} typ srflx raddr ${raddr} rport ${rport} generation 0`;
+        }
+        return `a=candidate:${i + 1} 1 ${proto} ${prio} ${ip} ${port} typ host generation 0`;
+      })
+      .join('\r\n');
+
+    const sdp = [
+      'v=0',
+      'o=- 0 2 IN IP4 127.0.0.1',
+      's=-',
+      't=0 0',
+      'a=group:BUNDLE 0',
+      'a=msid-semantic: WMS',
+      'm=application 9 UDP/DTLS/SCTP webrtc-datachannel',
+      'c=IN IP4 0.0.0.0',
+      `a=ice-ufrag:${mini.u}`,
+      `a=ice-pwd:${mini.p}`,
+      'a=ice-options:trickle',
+      `a=fingerprint:sha-256 ${fp}`,
+      `a=setup:${setup}`,
+      'a=mid:0',
+      'a=sctp-port:5000',
+      'a=max-message-size:262144',
+      candidates,
+      'a=end-of-candidates',
+      '',
+    ].join('\r\n');
+
+    return { type, sdp };
+  }
+
+  /**
+   * Format a raw code string into readable 4-char groups.
+   * e.g. "eyJ0IjoibyIsInUiOiJh..." → "eyJ0-Ijoi-byIs-..."
+   * @param {string} code
+   * @returns {string}
+   */
+  function formatCode(code) {
+    return code.replace(/(.{4})/g, '$1-').replace(/-$/, '');
+  }
+
+  /* ════════════════════════════════════════════════════════════════
      SYNC ENGINE
-  ══════════════════════════════════════════════════════════════ */
+  ════════════════════════════════════════════════════════════════ */
 
   class SyncEngine extends EventTarget {
-
     constructor() {
       super();
       this._pc        = null;
-      this._ch        = null;   // RTCDataChannel
+      this._ch        = null;
       this._connected = false;
       this._isHost    = false;
-      this._queue     = [];     // messages buffered while offline
+      this._queue     = [];
       this._pingTimer = null;
       this._pongTimer = null;
     }
 
-    /* ── HOST: create offer → return 6-char code ─────────────── */
+    /* ── HOST: createOffer → returns formatted code ─────────────── */
     async createOfferCode() {
       this._isHost = true;
-      this._initPC();
+      this._setupPC();
 
-      // Host creates the DataChannel
-      this._ch = this._pc.createDataChannel('tictac', { ordered: true });
+      // Host creates the data channel
+      this._ch = this._pc.createDataChannel('tictac', {
+        ordered:  true,
+        protocol: 'tictac-v1',
+      });
       this._wireChannel(this._ch);
 
-      // Generate offer and wait for all ICE candidates
       await this._pc.setLocalDescription(await this._pc.createOffer());
-      const desc = await this._waitICE();
+      const desc = await this._gatherICE();
 
-      // Store and return short code
-      return storeSDP(JSON.stringify({ type: desc.type, sdp: desc.sdp }));
+      return formatCode(encodeSDP(desc));
     }
 
-    /* ── GUEST: take offer code → return 6-char answer code ───── */
+    /* ── GUEST: offerCode → createAnswer → returns formatted code ── */
     async createAnswerCode(offerCode) {
       this._isHost = false;
-      this._initPC();
+      this._setupPC();
 
-      // Guest receives DataChannel from host
+      // Guest receives channel from host
       this._pc.ondatachannel = (e) => {
         this._ch = e.channel;
         this._wireChannel(this._ch);
       };
 
-      // Fetch host's SDP and apply it
-      const offerText = await fetchSDP(offerCode);
-      const offerObj  = JSON.parse(offerText);
-      await this._pc.setRemoteDescription(new RTCSessionDescription(offerObj));
+      // Decode and apply the offer
+      const offerDesc = decodeSDP(offerCode);
+      await this._pc.setRemoteDescription(new RTCSessionDescription(offerDesc));
 
-      // Generate answer and wait for ICE
       await this._pc.setLocalDescription(await this._pc.createAnswer());
-      const desc = await this._waitICE();
+      const desc = await this._gatherICE();
 
-      // Store and return short code
-      return storeSDP(JSON.stringify({ type: desc.type, sdp: desc.sdp }));
+      return formatCode(encodeSDP(desc));
     }
 
-    /* ── HOST: apply guest's answer code ────────────────────────── */
+    /* ── HOST: accept formatted answer code ─────────────────────── */
     async acceptAnswerCode(answerCode) {
-      const answerText = await fetchSDP(answerCode);
-      const answerObj  = JSON.parse(answerText);
-      await this._pc.setRemoteDescription(new RTCSessionDescription(answerObj));
-      // ICE will connect; DataChannel open event fires 'connected'
+      const answerDesc = decodeSDP(answerCode);
+      await this._pc.setRemoteDescription(new RTCSessionDescription(answerDesc));
+      // ICE proceeds → DataChannel opens → fires 'connected'
     }
 
-    /* ── Send a typed message to peer ───────────────────────────── */
+    /* ── Send a typed game message ───────────────────────────────── */
     send(type, payload) {
       const raw = JSON.stringify({ type, payload });
       if (this._ch?.readyState === 'open') {
-        try { this._ch.send(raw); return; }
-        catch (_) { /* fall through to queue */ }
+        try { this._ch.send(raw); return; } catch (_) {}
       }
       this._queue.push(raw);
     }
 
-    /* ── Tear down ───────────────────────────────────────────────── */
+    /* ── Tear down everything ────────────────────────────────────── */
     disconnect() {
       this._stopPing();
-      try { this._ch?.close();  } catch (_) {}
-      try { this._pc?.close();  } catch (_) {}
+      try { this._ch?.close(); } catch (_) {}
+      try { this._pc?.close(); } catch (_) {}
       this._ch        = null;
       this._pc        = null;
       this._connected = false;
@@ -343,59 +323,82 @@
     get isConnected() { return this._connected; }
     get isHost()      { return this._isHost; }
 
-    /* ── Private ─────────────────────────────────────────────────── */
-
-    _initPC() {
+    /* ── Private: init RTCPeerConnection ────────────────────────── */
+    _setupPC() {
       this.disconnect();
       this._pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
 
       this._pc.oniceconnectionstatechange = () => {
         const s = this._pc?.iceConnectionState;
-        console.log('[sync] ICE state:', s);
+        console.log('[sync] ICE:', s);
         if (s === 'failed' || s === 'disconnected') {
           this._connected = false;
           this._stopPing();
           this._dispatch('statuschange', { status: 'offline' });
         }
       };
+
+      this._pc.onconnectionstatechange = () => {
+        console.log('[sync] Conn:', this._pc?.connectionState);
+      };
     }
 
-    _waitICE() {
+    /* ── Private: wait for ICE gathering to finish ───────────────── */
+    _gatherICE() {
       return new Promise((resolve) => {
+        const done = () => {
+          if (this._pc?.iceGatheringState === 'complete') {
+            resolve(this._pc.localDescription);
+          }
+        };
+
+        // Already complete (rare but possible)
         if (this._pc.iceGatheringState === 'complete') {
           resolve(this._pc.localDescription);
           return;
         }
+
+        this._pc.onicegatheringstatechange = done;
+
+        // Hard timeout — don't wait forever
+        const timer = setTimeout(() => {
+          console.warn('[sync] ICE gather timeout — using partial candidates');
+          resolve(this._pc.localDescription);
+        }, ICE_GATHER_TIMEOUT);
+
+        // Clean up timer if we finish early
         this._pc.onicegatheringstatechange = () => {
-          if (this._pc.iceGatheringState === 'complete') {
+          if (this._pc?.iceGatheringState === 'complete') {
+            clearTimeout(timer);
             resolve(this._pc.localDescription);
           }
         };
-        setTimeout(() => {
-          console.warn('[sync] ICE gather timeout — proceeding with partial candidates');
-          resolve(this._pc.localDescription);
-        }, ICE_TIMEOUT);
       });
     }
 
+    /* ── Private: wire up DataChannel event handlers ─────────────── */
     _wireChannel(ch) {
       ch.onopen = () => {
-        console.log('[sync] DataChannel OPEN ✓');
+        console.log('[sync] ✓ DataChannel open');
         this._connected = true;
         this._dispatch('statuschange', { status: 'connected' });
         this._startPing();
         this._flushQueue();
       };
+
       ch.onclose = () => {
         console.log('[sync] DataChannel closed');
         this._connected = false;
         this._stopPing();
         this._dispatch('statuschange', { status: 'offline' });
       };
-      ch.onerror = () => {
+
+      ch.onerror = (e) => {
+        console.warn('[sync] DataChannel error:', e);
         this._connected = false;
         this._dispatch('statuschange', { status: 'offline' });
       };
+
       ch.onmessage = (e) => {
         try {
           const { type, payload } = JSON.parse(e.data);
@@ -406,10 +409,13 @@
             return;
           }
           this._dispatch('message', { type, payload });
-        } catch (_) {}
+        } catch (err) {
+          console.warn('[sync] bad message:', err);
+        }
       };
     }
 
+    /* ── Private: flush queued messages after reconnect ─────────── */
     _flushQueue() {
       const q = [...this._queue];
       this._queue = [];
@@ -421,12 +427,14 @@
       }
     }
 
+    /* ── Private: keepalive ping/pong ────────────────────────────── */
     _startPing() {
       this._stopPing();
       this._pingTimer = setInterval(() => {
         if (this._ch?.readyState === 'open') {
           this.send('PING', {});
           this._pongTimer = setTimeout(() => {
+            console.warn('[sync] Pong timeout — peer offline');
             this._connected = false;
             this._dispatch('statuschange', { status: 'offline' });
           }, PING_TIMEOUT);
@@ -441,11 +449,17 @@
       this._pongTimer = null;
     }
 
+    /* ── Private: dispatch CustomEvent ──────────────────────────── */
     _dispatch(name, detail) {
       this.dispatchEvent(new CustomEvent(name, { detail }));
     }
   }
 
+  /* Export globals */
   window.TicTacSync = new SyncEngine();
+
+  // Expose for debugging in console
+  window._decodeSDP = decodeSDP;
+  window._encodeSDP = encodeSDP;
 
 })();

@@ -328,48 +328,40 @@ input[type="text"].code-input {
   line-height: 1.4;
 }
 
-/* The big code display box */
-.code-display {
+/* The code textarea — for copy-pasting the ~300-char encoded SDP */
+.code-textarea {
+  width: 100%;
   background: #f7f3e8;
   border: 2px dashed #41403e;
   border-radius: 4px;
-  padding: 14px 10px;
-  text-align: center;
-  letter-spacing: 8px;
-  font-size: 2rem;
-  font-family: "Patrick Hand SC", sans-serif;
+  padding: 10px 12px;
+  font-family: "Courier New", Courier, monospace;
+  font-size: 0.7rem;
+  line-height: 1.5;
   color: #41403e;
-  min-height: 60px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  resize: none;
+  height: 90px;
+  word-break: break-all;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  box-sizing: border-box;
 }
 
-.code-loading {
-  font-size: 0.85rem;
-  letter-spacing: 1px;
-  color: #8f8d89;
-  animation: blink 1.2s infinite;
+.code-textarea:focus {
+  border-color: #41403e;
+  border-style: solid;
+  box-shadow: 0 0 0 2px rgba(65,64,62,0.12);
 }
 
-@keyframes blink {
-  0%, 100% { opacity: 1; }
-  50%       { opacity: 0.3; }
+.code-textarea[readonly] {
+  background: #f0ece0;
+  cursor: text;
+  color: #272625;
+  font-weight: bold;
+  letter-spacing: 0.5px;
 }
 
-.code-input-row {
-  display: flex;
-  gap: 8px;
-  align-items: stretch;
-}
-
-.code-input-row input {
-  text-transform: uppercase;
-  letter-spacing: 4px;
-  font-size: 1.2rem;
-  text-align: center;
-  flex: 1;
-}
+.code-textarea::placeholder { color: #b0ae9a; font-weight: normal; }
 
 /* ── Status pill ────────────────────────────────────── */
 .status-pill {

@@ -76,30 +76,24 @@
         <div class="step-card border-1">
           <div class="step-num">1</div>
           <div class="step-body">
-            <p class="step-label">Share your <strong>Room Code</strong> with your opponent</p>
-            <div class="code-display" id="host-offer-code">
-              <span class="code-loading">Generating…</span>
-            </div>
-            <button class="btn-outline btn-sm" id="btn-copy-offer">📋 Copy Code</button>
+            <p class="step-label">Copy this <strong>Offer Code</strong> and send it to your opponent</p>
+            <textarea id="host-offer-code" class="code-textarea" readonly placeholder="Generating offer code…"></textarea>
+            <button class="btn-outline btn-sm" id="btn-copy-offer">📋 Copy Offer Code</button>
           </div>
         </div>
 
         <div class="step-card border-2">
           <div class="step-num">2</div>
           <div class="step-body">
-            <p class="step-label">Enter the <strong>Join Code</strong> your opponent gives you</p>
-            <div class="code-input-row">
-              <input
-                id="input-answer-code"
-                type="text"
-                placeholder="6-letter code"
-                maxlength="6"
-                autocomplete="off"
-                spellcheck="false"
-                autocapitalize="characters"
-              />
-              <button class="btn-primary btn-sm" id="btn-submit-answer">Connect ▶</button>
-            </div>
+            <p class="step-label">Paste the <strong>Answer Code</strong> your opponent sends back</p>
+            <textarea
+              id="input-answer-code"
+              class="code-textarea"
+              placeholder="Paste the Answer Code here…"
+              autocomplete="off"
+              spellcheck="false"
+            ></textarea>
+            <button class="btn-primary btn-sm" id="btn-submit-answer">Connect ▶</button>
           </div>
         </div>
       </div>
@@ -109,30 +103,24 @@
         <div class="step-card border-1">
           <div class="step-num">1</div>
           <div class="step-body">
-            <p class="step-label">Paste the host's <strong>Room Code</strong></p>
-            <div class="code-input-row">
-              <input
-                id="input-offer-code"
-                type="text"
-                placeholder="Host's 6-letter code"
-                maxlength="6"
-                autocomplete="off"
-                spellcheck="false"
-                autocapitalize="characters"
-              />
-              <button class="btn-primary btn-sm" id="btn-generate-answer">Submit ▶</button>
-            </div>
+            <p class="step-label">Paste the host's <strong>Offer Code</strong></p>
+            <textarea
+              id="input-offer-code"
+              class="code-textarea"
+              placeholder="Paste the Offer Code here…"
+              autocomplete="off"
+              spellcheck="false"
+            ></textarea>
+            <button class="btn-primary btn-sm" id="btn-generate-answer">Generate Answer ▶</button>
           </div>
         </div>
 
         <div id="guest-step-2" class="step-card border-2 hidden">
           <div class="step-num">2</div>
           <div class="step-body">
-            <p class="step-label">Send this <strong>Join Code</strong> back to the host</p>
-            <div class="code-display" id="guest-answer-code">
-              <span class="code-loading">Generating…</span>
-            </div>
-            <button class="btn-outline btn-sm" id="btn-copy-answer">📋 Copy Code</button>
+            <p class="step-label">Copy this <strong>Answer Code</strong> and send it back to the host</p>
+            <textarea id="guest-answer-code" class="code-textarea" readonly placeholder="Generating answer code…"></textarea>
+            <button class="btn-outline btn-sm" id="btn-copy-answer">📋 Copy Answer Code</button>
           </div>
         </div>
       </div>
