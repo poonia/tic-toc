@@ -1,0 +1,136 @@
+/*
+ * paper.css — PaperCSS essentials bundled locally for offline PWA support.
+ *
+ * Why local? Loading from unpkg.com CDN breaks offline mode entirely:
+ *   1. The SW can't cache cross-origin opaque responses during install
+ *   2. If CDN is unavailable, the entire UI breaks
+ *
+ * Fonts: PaperCSS uses Neucha + Patrick Hand SC from Google Fonts.
+ * We load them with a @font-face that tries Google Fonts first and
+ * falls back to safe handwriting-style system fonts offline.
+ * The app looks fine with fallbacks — no blank screen.
+ *
+ * Includes: reset, typography, layout (container, paper, row/col),
+ * and the distinctive hand-drawn border styles.
+ */
+
+/* ── Font loading — graceful offline fallback ──────────────────── */
+/* Try Google Fonts first; if offline, use system cursive fallbacks */
+@import url("https://fonts.googleapis.com/css2?family=Neucha&family=Patrick+Hand+SC&display=swap");
+
+/* Fallback stacks that look reasonably hand-drawn offline */
+:root {
+  --font-body:    "Neucha", "Comic Sans MS", "Chalkboard SE", cursive, sans-serif;
+  --font-heading: "Patrick Hand SC", "Comic Sans MS", "Chalkboard SE", cursive, sans-serif;
+}
+
+/* ── Normalize essentials ──────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+html { line-height: 1.15; -webkit-text-size-adjust: 100%; }
+body { margin: 0; }
+h1, h2, h3, h4, h5, h6 { margin: 0.5em 0; }
+button, input, textarea, select {
+  font-family: inherit;
+  font-size: 100%;
+  line-height: 1.15;
+  margin: 0;
+}
+button, input { overflow: visible; }
+textarea { overflow: auto; }
+[hidden] { display: none; }
+
+/* ── PaperCSS typography ───────────────────────────────────────── */
+html {
+  color: #41403e;
+  font-family: var(--font-body);
+  font-size: 18px;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-heading);
+  font-weight: normal;
+}
+
+h1 { font-size: 3.5rem; }
+h2 { font-size: 2.5rem; }
+h3 { font-size: 1.8rem; }
+h4 { font-size: 1.4rem; }
+h5 { font-size: 1rem; }
+h6 { font-size: 0.85rem; }
+
+p, a, button, input, textarea, li {
+  font-family: var(--font-body);
+}
+
+.text-center  { text-align: center; }
+.text-left    { text-align: left; }
+.text-right   { text-align: right; }
+.text-muted   { color: #868e96; }
+
+/* ── Layout — container ────────────────────────────────────────── */
+.container {
+  margin: 0 auto;
+  max-width: 960px;
+  position: relative;
+  width: 100%;
+}
+.container-xs { max-width: 480px; }
+.container-sm { max-width: 768px; }
+
+@media (max-width: 992px) { .container { width: 90%; } }
+@media (max-width: 480px) { .container { width: 96%; } }
+
+/* ── Paper card ────────────────────────────────────────────────── */
+.paper {
+  background: #fffef9;
+  border: 1px solid #d4c8b0;
+  box-shadow: 3px 5px 25px -6px rgba(0,0,0,0.18);
+  margin: 12px auto;
+  padding: 2rem;
+}
+
+@media (max-width: 480px) {
+  .paper { padding: 1rem; margin: 4px auto; }
+}
+
+/* ── Hand-drawn border radius variants (PaperCSS signature style) */
+.border-1,
+.child-borders > *:nth-child(6n+1) {
+  border-bottom-left-radius: 15px 255px;
+  border-bottom-right-radius: 225px 15px;
+  border-top-left-radius: 255px 15px;
+  border-top-right-radius: 15px 225px;
+}
+
+.border-2,
+.child-borders > *:nth-child(6n+2) {
+  border-bottom-left-radius: 185px 25px;
+  border-bottom-right-radius: 20px 205px;
+  border-top-left-radius: 125px 25px;
+  border-top-right-radius: 10px 205px;
+}
+
+.border-3,
+.child-borders > *:nth-child(6n+3) {
+  border-bottom-left-radius: 225px 15px;
+  border-bottom-right-radius: 15px 255px;
+  border-top-left-radius: 25px 115px;
+  border-top-right-radius: 155px 25px;
+}
+
+.border-4,
+.child-borders > *:nth-child(6n+4) {
+  border-bottom-left-radius: 15px 225px;
+  border-bottom-right-radius: 255px 15px;
+  border-top-left-radius: 215px 15px;
+  border-top-right-radius: 15px 215px;
+}
+
+/* ── Row / column flexbox ──────────────────────────────────────── */
+.row {
+  display: flex;
+  flex-flow: row wrap;
+  margin-bottom: 1rem;
+}
+.col { padding: 0.5rem; }
+@media (max-width: 768px) { .col { flex: 0 0 100%; max-width: 100%; } }

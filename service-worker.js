@@ -1,18 +1,29 @@
 /**
- * service-worker.js — Offline-first caching strategy
+ * service-worker.js — Offline-first PWA caching
  *
- * Strategy: Cache-First for app shell, Network-First for navigations.
- * On install:  pre-cache all app shell assets.
- * On fetch:    serve from cache if available; fall back to network.
- * On activate: clean up old cache versions.
+ * Strategy:
+ *   INSTALL  → Pre-cache every local app-shell asset. Fails loudly if any
+ *              local file is missing (catches typos in PRECACHE_URLS).
+ *              Google Fonts are cached opportunistically — not required.
+ *
+ *   ACTIVATE → Delete any old cache versions immediately.
+ *              Claim all open tabs so the new SW takes effect right away.
+ *
+ *   FETCH    → Cache-first for ALL requests:
+ *                1. Check cache → return immediately if found
+ *                2. Fetch from network → cache the response → return it
+ *                3. If both fail (offline + not cached) → return offline page
+ *              This ensures the app works fully offline after first load.
+ *
+ * Bump CACHE_NAME whenever you change any app file to force re-install.
  */
 
-const CACHE_VERSION = 'tictac-v1';
+const CACHE_NAME = 'tictac-v4';
 
-// App shell — all files needed to run offline
-const PRECACHE_URLS = [
-  './',
+/* Every local file the app needs to run offline */
+const PRECACHE = [
   './index.html',
+  './paper.css',
   './style.css',
   './app.js',
   './db.js',
@@ -20,95 +31,97 @@ const PRECACHE_URLS = [
   './manifest.json',
   './icons/icon-192.png',
   './icons/icon-512.png',
-  // Google Fonts — attempt to cache, skip if offline during install
 ];
 
-// ── Install: pre-cache app shell ────────────────────────────────
+/* Google Fonts URLs to cache opportunistically (best-effort) */
+const FONT_ORIGINS = ['fonts.googleapis.com', 'fonts.gstatic.com'];
+
+/* ── INSTALL ─────────────────────────────────────────────────────
+   Pre-cache all local app-shell files.
+   skipWaiting() activates this SW immediately without waiting for
+   existing tabs to close.
+─────────────────────────────────────────────────────────────────*/
 self.addEventListener('install', (event) => {
-  console.log('[sw] Install:', CACHE_VERSION);
-
   event.waitUntil(
-    caches.open(CACHE_VERSION).then((cache) => {
-      // Cache must-have files (will fail install if these miss)
-      return cache.addAll(PRECACHE_URLS.filter(url => !url.includes('fonts.googleapis')));
-    }).then(() => {
-      // Skip waiting — activate immediately
-      return self.skipWaiting();
-    })
+    caches.open(CACHE_NAME)
+      .then((cache) => cache.addAll(PRECACHE))
+      .then(() => self.skipWaiting())
+      .catch((err) => {
+        console.error('[sw] Pre-cache failed:', err);
+        throw err; // Abort install so Chrome retries next time
+      })
   );
 });
 
-// ── Activate: delete old caches ─────────────────────────────────
+/* ── ACTIVATE ────────────────────────────────────────────────────
+   Remove all old caches. clients.claim() makes this SW immediately
+   control any open pages without needing a reload.
+─────────────────────────────────────────────────────────────────*/
 self.addEventListener('activate', (event) => {
-  console.log('[sw] Activate:', CACHE_VERSION);
-
   event.waitUntil(
-    caches.keys().then((cacheNames) => {
-      return Promise.all(
-        cacheNames
-          .filter(name => name !== CACHE_VERSION)
-          .map(name => {
-            console.log('[sw] Deleting old cache:', name);
-            return caches.delete(name);
-          })
-      );
-    }).then(() => self.clients.claim())
+    caches.keys()
+      .then((keys) =>
+        Promise.all(
+          keys
+            .filter((k) => k !== CACHE_NAME)
+            .map((k) => caches.delete(k))
+        )
+      )
+      .then(() => self.clients.claim())
   );
 });
 
-// ── Fetch: cache-first strategy ─────────────────────────────────
+/* ── FETCH ───────────────────────────────────────────────────────
+   Cache-first strategy for all GET requests.
+─────────────────────────────────────────────────────────────────*/
 self.addEventListener('fetch', (event) => {
   const { request } = event;
-  const url = new URL(request.url);
 
-  // Skip non-GET and cross-origin WebRTC/API requests
+  /* Only intercept GET requests */
   if (request.method !== 'GET') return;
-  if (url.protocol === 'chrome-extension:') return;
 
-  // For navigation requests, use network-first (to get latest version)
-  if (request.mode === 'navigate') {
-    event.respondWith(
-      fetch(request)
-        .then((response) => {
-          // Cache fresh response
-          const cloned = response.clone();
-          caches.open(CACHE_VERSION).then(cache => cache.put(request, cloned));
-          return response;
-        })
-        .catch(() => {
-          // Offline — serve cached page
-          return caches.match('./index.html');
-        })
-    );
-    return;
-  }
+  /* Skip chrome-extension and non-http(s) URLs */
+  if (!request.url.startsWith('http')) return;
 
-  // For all other assets: cache-first
+  const url = new URL(request.url);
+  const isSameOrigin = url.origin === self.location.origin;
+  const isFont = FONT_ORIGINS.some((h) => url.hostname.includes(h));
+
+  /* Skip WebRTC STUN requests and other non-cacheable cross-origin */
+  if (!isSameOrigin && !isFont) return;
+
   event.respondWith(
-    caches.match(request).then((cached) => {
+    caches.open(CACHE_NAME).then(async (cache) => {
+
+      /* 1. Try cache first */
+      const cached = await cache.match(request);
       if (cached) return cached;
 
-      // Not in cache — fetch and optionally cache
-      return fetch(request).then((response) => {
-        // Only cache same-origin successful responses
-        if (response.ok && url.origin === self.location.origin) {
-          const cloned = response.clone();
-          caches.open(CACHE_VERSION).then(cache => cache.put(request, cloned));
+      /* 2. Not in cache — fetch from network */
+      try {
+        const response = await fetch(request);
+
+        /* Cache valid same-origin responses and font responses */
+        if (response.ok && (isSameOrigin || isFont)) {
+          cache.put(request, response.clone());
         }
+
         return response;
-      }).catch(() => {
-        // Resource offline and not cached — return empty 503
-        return new Response('Offline', {
+      } catch (_networkError) {
+
+        /* 3. Offline and not cached */
+        if (request.mode === 'navigate') {
+          /* Navigation: serve the cached app shell */
+          const shell = await cache.match('./index.html');
+          if (shell) return shell;
+        }
+
+        /* All else: return a minimal offline response */
+        return new Response('Offline — resource not cached yet.', {
           status: 503,
-          statusText: 'Service Unavailable',
+          headers: { 'Content-Type': 'text/plain' },
         });
-      });
+      }
     })
   );
-});
-
-// ── Background sync (future enhancement) ─────────────────────────
-self.addEventListener('sync', (event) => {
-  console.log('[sw] Background sync:', event.tag);
-  // Could be used to flush queued moves when network resumes
 });
